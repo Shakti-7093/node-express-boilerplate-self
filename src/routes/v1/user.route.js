@@ -3,6 +3,7 @@ const auth = require('../../middlewares/auth');
 const validate = require('../../middlewares/validate');
 const userValidation = require('../../validations/user.validation');
 const userController = require('../../controllers/user.controller');
+const { authRateLimit, passwordResetRateLimit } = require('../../middlewares/securityMiddleware');
 
 const router = express.Router();
 
@@ -16,6 +17,64 @@ router
   .get(auth('getUsers'), validate(userValidation.getUser), userController.getUser)
   .patch(auth('manageUsers'), validate(userValidation.updateUser), userController.updateUser)
   .delete(auth('manageUsers'), validate(userValidation.deleteUser), userController.deleteUser);
+
+router
+  .route('/:userId/mfa/setup')
+  .post(auth('manageUsers'), validate(userValidation.setupMFA), userController.setupMFA);
+
+router
+  .route('/:userId/mfa/enable')
+  .post(auth('manageUsers'), validate(userValidation.enableMFA), userController.enableMFA);
+
+router
+  .route('/:userId/mfa/disable')
+  .post(auth('manageUsers'), validate(userValidation.disableMFA), userController.disableMFA);
+
+router
+  .route('/mfa/verify')
+  .post(authRateLimit, validate(userValidation.verifyMFA), userController.verifyMFA);
+
+router
+  .route('/mfa/backup-code')
+  .post(authRateLimit, validate(userValidation.useBackupCode), userController.useBackupCode);
+
+router
+  .route('/password/validate')
+  .post(validate(userValidation.validatePasswordStrength), userController.validatePasswordStrength);
+
+router
+  .route('/:userId/password/change')
+  .post(passwordResetRateLimit, auth('manageUsers'), validate(userValidation.changePassword), userController.changePassword);
+
+router
+  .route('/:userId/security')
+  .get(auth('getUsers'), validate(userValidation.getSecurityInfo), userController.getUserSecurityInfo);
+
+router
+  .route('/:userId/mfa/debug')
+  .get((req, res) => {
+    const { User } = require('../../models');
+    User.findById(req.params.userId).then(user => {
+      if (!user) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+      
+      res.json({
+        userId: user.id,
+        email: user.email,
+        mfaEnabled: user.mfaEnabled,
+        hasSecret: !!user.mfaSecret,
+        secretLength: user.mfaSecret ? user.mfaSecret.length : 0,
+        backupCodesCount: user.mfaBackupCodes ? user.mfaBackupCodes.length : 0
+      });
+    }).catch(err => {
+      res.status(500).json({ error: err.message });
+    });
+  });
+
+router
+  .route('/:userId/unlock')
+  .post(auth('manageUsers'), validate(userValidation.unlockAccount), userController.unlockAccount);
 
 module.exports = router;
 

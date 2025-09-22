@@ -13,9 +13,28 @@ const { tokenTypes } = require('../config/tokens');
  */
 const loginUserWithEmailAndPassword = async (email, password) => {
   const user = await userService.getUserByEmail(email);
-  if (!user || !(await user.isPasswordMatch(password))) {
+  
+  if (!user) {
     throw new ApiError(httpStatus.UNAUTHORIZED, 'Incorrect email or password');
   }
+  
+  // Check if account is locked
+  if (user.isLocked()) {
+    const lockTimeRemaining = Math.ceil((user.lockUntil - Date.now()) / (60 * 1000));
+    throw new ApiError(httpStatus.LOCKED, `Account is locked due to too many failed login attempts. Try again in ${lockTimeRemaining} minutes.`);
+  }
+  
+  // Verify password
+  const isPasswordValid = await user.isPasswordMatch(password);
+  if (!isPasswordValid) {
+    // Handle failed login attempt
+    await userService.handleFailedLogin(email);
+    throw new ApiError(httpStatus.UNAUTHORIZED, 'Incorrect email or password');
+  }
+  
+  // Handle successful login
+  await userService.handleSuccessfulLogin(user.id);
+  
   return user;
 };
 
